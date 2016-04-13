@@ -1,0 +1,1 @@
+read in franken_sentences.txt (the Frankenstein book from the Gutenberg project split up in sentences without punctuation etc) and use it to generate new text using a Markov chain model
