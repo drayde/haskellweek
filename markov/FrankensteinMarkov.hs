@@ -17,72 +17,65 @@ renderSentence s = unwords s  ++ "."
 
 -- given cleaned text, returns list of sentences
 splitIntoSentences :: String -> [Sentence]
-splitIntoSentences all =  map toWords (filter (not.null) (lines all) )
-    where
-        toWords :: String -> Sentence
-        toWords line = filter (not.null) $ words line
+splitIntoSentences =  map (filter (not.null) . words) . filter (not.null) . lines
 
 
 -- filter out weird sentences
 filterSentences :: [Sentence] -> [Sentence]
-filterSentences = filter (\x -> 2 < length x)
+filterSentences = filter ((>2) . length)
 
-
+-- build a markov chain model from a list of sentences
 buildMarkovModel :: [Sentence] -> MarkovMap
-buildMarkovModel sentences = Map.fromListWith (++) transformed
+buildMarkovModel sentences = fixStartValues $ Map.fromListWith (++) transformed
     where
         transformed = map (\((a,b,c),n) -> ((a,b),[(c,n)])) counted
         counted = Map.toList $ Map.fromListWith (+) tuples
-        tuples = map (\x -> (x,1)) (extract1 sentences)
+        tuples = map (\x -> (x,1)) . concatMap extract $ sentences
 
-        extract1 :: [Sentence] -> [(MyWord, MyWord, MyWord)]
-        extract1 [] = []
-        extract1 (x:xs) = extract2 ("@@":x) ++ extract1 xs
+        extract :: [MyWord] -> [(MyWord, MyWord, MyWord)]
+        extract l = zip3 ("":"":l) ("":l) ll where ll = l++[""]
 
-        extract2 :: [MyWord] -> [(MyWord, MyWord, MyWord)]
-        extract2 [] = []
-        extract2 [x] = []
-        extract2 ("@@":x:xs) = ("", "", x) : extract2 ("@":x:xs)
-        extract2 ("@":x:y:xs) = ("", x, y) : extract2 (x:y:xs)
-        extract2 (x:y:z:xs) = (x, y, z) : extract2 (y:z:xs)
-        extract2 (x:y:xs) = [(x, y, "")]
+        -- fine-tune probabilities for first word
+        fixStartValues :: MarkovMap -> MarkovMap
+        fixStartValues = Map.adjust (map (\(w,c)->(w,min 100 c))) ("","")
 
-
+-- build a sentence from the markov model
 makeSentence :: MarkovMap -> Random.StdGen -> Sentence
 makeSentence model rand = reverse $ make "" "" model rand []
     where
         make :: MyWord -> MyWord -> MarkovMap -> Random.StdGen -> Sentence -> Sentence
-        make (x:xs) "" model rand out = out
         make a b model rand out =
-            let (next,rand') = findNextWord (Map.lookup (a,b) model) rand in
-                make b next model rand' (if null a then out else a:out)
+            let
+                (next,rand') = case Map.lookup (a,b) model of
+                    Nothing     -> ("", rand)
+                    (Just list) -> chooseWord list rand
+            in
+                if null next then b:a:out -- end of sentence, add words in pipeline
+                             else make b next model rand' (if null a then out else a:out)
 
-        findNextWord :: Maybe [(MyWord, Int)] -> Random.StdGen -> (MyWord, Random.StdGen)
-        findNextWord Nothing rand = ("", rand)
-        findNextWord (Just []) rand = ("", rand)
-        findNextWord (Just list) rand = chooseWord list rand
-
+        -- from the list, pick one
         chooseWord :: [(MyWord, Int)] -> Random.StdGen -> (MyWord, Random.StdGen)
         chooseWord lst rand =
             let
-                sumCount = foldr (\x acc->acc + snd x) 0 lst
-                (r,rand') = Random.randomR (0, sumCount*2) rand
+                sumCount = foldr (\(_,c) acc->acc + c) 0 lst
+                (r,rand') = Random.randomR (0, sumCount-1) rand
             in
                 --trace (show rand)
                 (chooser r lst, rand')
 
         chooser :: Int -> [(MyWord, Int)] -> MyWord
-        chooser _ [] = ""
-        chooser _ [x] = fst x
-        chooser n ((w,c):xs) = if n<c then w else chooser (n-c) (xs++[(w,c)])
+        chooser n ((w,c):xs) = if n<c then w else chooser (n-c) xs
 
 main =
     withFile "franken_sentences.txt" ReadMode (\handle -> do
         contents <- hGetContents handle
         let sentences = filterSentences $ splitIntoSentences contents
         let model = buildMarkovModel sentences
+
         -- mapM (putStrLn.renderSentence) sentences
-        -- sequence_ $ Map.mapWithKey (\k x -> print ( show k ++ " -> " ++ show x)) model
+
+        let format2nd (w,c) = w++ "," ++ show c ++ "  "
+        -- mapM_ (\((k1,k2),x) -> putStrLn $  k1 ++ "," ++ k2 ++ " -> " ++ concatMap format2nd x) $ Map.toList model
 
         mapM (\x -> (putStrLn.renderSentence) (makeSentence model (Random.mkStdGen x))) [1..10]
         )
