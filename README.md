@@ -6,8 +6,6 @@ You can find it online: http://learnyouahaskell.com/
 
 Reference and further reading:
 
-Haskell Base Package:
-https://hackage.haskell.org/package/base-4.8.2.0
-
-http://book.realworldhaskell.org/read/
-https://wiki.haskell.org/H-99:_Ninety-Nine_Haskell_Problems
+* Haskell Base Package: https://hackage.haskell.org/package/base-4.8.2.0
+* http://book.realworldhaskell.org/read/
+* https://wiki.haskell.org/H-99:_Ninety-Nine_Haskell_Problems
