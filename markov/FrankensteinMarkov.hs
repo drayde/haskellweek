@@ -3,8 +3,7 @@ import Debug.Trace
 import qualified Data.Map.Strict as Map
 import qualified Data.List as List
 import qualified Data.Char as Char
-import qualified System.Random as Random
-
+import qualified Control.Monad.Random as Random
 
 type MyWord = String
 type Sentence = [MyWord]
@@ -40,28 +39,26 @@ buildMarkovModel sentences = fixStartValues $ Map.fromListWith (++) transformed
         fixStartValues = Map.adjust (map (\(w,c)->(w,min 100 c))) ("","")
 
 -- build a sentence from the markov model
-makeSentence :: MarkovMap -> Random.StdGen -> Sentence
-makeSentence model rand = reverse $ make "" "" model rand []
+makeSentence :: (Random.RandomGen g) => MarkovMap -> Random.Rand g Sentence
+makeSentence model = do
+    result <- make "" "" model []
+    return $ reverse result
     where
-        make :: MyWord -> MyWord -> MarkovMap -> Random.StdGen -> Sentence -> Sentence
-        make a b model rand out =
-            let
-                (next,rand') = case Map.lookup (a,b) model of
-                    Nothing     -> ("", rand)
-                    (Just list) -> chooseWord list rand
-            in
-                if null next then b:a:out -- end of sentence, add words in pipeline
-                             else make b next model rand' (if null a then out else a:out)
+        make :: (Random.RandomGen g) => MyWord -> MyWord -> MarkovMap -> Sentence -> Random.Rand g Sentence
+        make a b model out = do
+            next <- case Map.lookup (a,b) model of
+                    Nothing     -> return ""
+                    (Just list) -> chooseWord list
+            if null next then return (b:a:out) -- end of sentence, add words in pipeline
+                         else make b next model (if null a then out else a:out)
 
         -- from the list, pick one
-        chooseWord :: [(MyWord, Int)] -> Random.StdGen -> (MyWord, Random.StdGen)
-        chooseWord lst rand =
-            let
-                sumCount = foldr (\(_,c) acc->acc + c) 0 lst
-                (r,rand') = Random.randomR (0, sumCount-1) rand
-            in
-                --trace (show rand)
-                (chooser r lst, rand')
+        chooseWord :: (Random.RandomGen g) => [(MyWord, Int)] -> Random.Rand g MyWord
+        chooseWord lst = do
+            let sumCount = foldr (\(_,c) acc->acc + c) 0 lst
+            r <- Random.getRandomR (0, sumCount-1)
+            --trace (show rand)
+            return $ chooser r lst
 
         chooser :: Int -> [(MyWord, Int)] -> MyWord
         chooser n ((w,c):xs) = if n<c then w else chooser (n-c) xs
@@ -76,6 +73,7 @@ main =
 
         let format2nd (w,c) = w++ "," ++ show c ++ "  "
         -- mapM_ (\((k1,k2),x) -> putStrLn $  k1 ++ "," ++ k2 ++ " -> " ++ concatMap format2nd x) $ Map.toList model
-
-        mapM (\x -> (putStrLn.renderSentence) (makeSentence model (Random.mkStdGen x))) [1..10]
+        stdGen <- Random.getStdGen
+        let randoms = Random.randomRs (1,9999999) stdGen :: [Int]
+        mapM (\x -> (putStrLn.renderSentence) (Random.evalRand ( makeSentence model) (Random.mkStdGen x))) (take 10 randoms)
         )
